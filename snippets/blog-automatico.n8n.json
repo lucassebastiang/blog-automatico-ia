@@ -1,0 +1,1395 @@
+{
+  "name": "Blog automático con IA (plantilla)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                3,
+                5
+              ],
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "fdd2b0e6-d9c9-4e99-9da1-3ba2a6076389",
+      "name": "Programado L-X-V 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_DE_TU_TABLA_DE_TEMAS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "estado",
+              "keyValue": "pendiente"
+            }
+          ]
+        },
+        "limit": 1,
+        "orderBy": true,
+        "orderByDirection": "ASC"
+      },
+      "id": "70e5c965-7e31-48aa-a05e-5a033d71b9ae",
+      "name": "Coger tema pendiente",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construye la petición al modelo (API compatible con OpenAI). Personaliza <MARCA>, <SERVICIOS> y <RUTAS>.\nconst t = $input.first().json;\nconst system = [\n  'Eres el redactor SEO de <MARCA>, <DESCRIPCIÓN BREVE DEL NEGOCIO>.',\n  'Escribes en español de España, con un tono cercano, directo y profesional, para dueños de pymes y autónomos.',\n  'DATOS FIJOS: usa solo los que aparecen aquí y no inventes otros: <SERVICIOS Y CONDICIONES PÚBLICAS>.',\n  'No inventes porcentajes, cifras de resultados ni estadísticas: usa afirmaciones cualitativas.',\n  'EXTENSIÓN (obligatoria): cuerpo_html debe superar las 1200 palabras, con al menos 7 secciones H2 de 3 o 4 párrafos cada una, y alguna H3 o lista donde aporte.',\n  'Responde a la búsqueda del lector en el primer párrafo.',\n  'ENLACES INTERNOS: de 2 a 4, solo con estas rutas relativas: <RUTAS>. Nunca escribas el dominio.',\n  'FORMATO: cuerpo_html es solo el interior del artículo (h2, h3, p, ul, li, strong, a).',\n  'Ejemplos de negocios genéricos, sin nombres reales. Sin promesas absolutas: prohibido garantizar el primer puesto en Google.',\n  'RESPONDE ÚNICAMENTE con un JSON válido con estos campos: titulo, slug, meta_title (máx. 60), meta_description (máx. 155),',\n  'categoria, extracto (máx. 160), imagen_query (2 a 4 palabras en inglés), imagen_alt, cuerpo_html,',\n  'faqs (array de 3 o 4 objetos {pregunta, respuesta}) y servicio_relacionado.',\n].join(' ');\nconst user = 'Escribe el artículo COMPLETO, de más de 1200 palabras. Tema: ' + t.tema +\n  '. Categoría: ' + t.categoria + '. Keyword principal: ' + t.keyword_principal +\n  '. Keywords secundarias: ' + t.keywords_secundarias + '. Servicio relacionado: ' + t.servicio_relacionado +\n  '. Devuelve solo el JSON del esquema indicado.';\nconst groqBody = {\n  model: 'openai/gpt-oss-120b', temperature: 0.6, max_completion_tokens: 6000,\n  response_format: { type: 'json_object' },\n  messages: [ { role: 'system', content: system }, { role: 'user', content: user } ],\n};\nreturn [{ json: { topic: t, groqBody } }];"
+      },
+      "id": "bab35b9d-eb6a-4dc9-a30f-ad9adb203f5b",
+      "name": "Construir peticion Groq",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://llm.example.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.groqBody }}",
+        "options": {}
+      },
+      "id": "efde6678-2fd0-4d26-93e6-e251ef66f9a1",
+      "name": "Generar articulo con Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json; var post = null; var reason = \"\"; try { post = JSON.parse(r.choices[0].message.content); } catch (e) { reason = \"JSON no parseable\"; } const req = [\"titulo\",\"slug\",\"meta_title\",\"meta_description\",\"categoria\",\"extracto\",\"cuerpo_html\",\"imagen_query\",\"imagen_alt\",\"servicio_relacionado\"]; if (post) { for (const k of req) { if (!post[k] || String(post[k]).trim() === \"\") { reason = \"Falta el campo \" + k; break; } } } if (post && (!Array.isArray(post.faqs) || post.faqs.length < 1)) { reason = \"Faltan las FAQs\"; } var words = 0; if (post && post.cuerpo_html) { words = String(post.cuerpo_html).replace(/<[^>]+>/g, \" \").split(/\\s+/).filter(Boolean).length; } if (post && reason === \"\" && words < 900) { reason = \"Articulo demasiado corto: \" + words + \" palabras\"; } const bad = [\"como modelo de lenguaje\",\"no puedo\",\"lo siento\",\"as an ai\",\"language model\"]; if (post && reason === \"\") { const low = (post.titulo + \" \" + post.cuerpo_html).toLowerCase(); for (const b of bad) { if (low.indexOf(b) !== -1) { reason = \"Frase prohibida: \" + b; break; } } } const valid = Boolean(post) && reason === \"\"; return [{ json: { valid: valid, reason: reason, post: post, topic: $(\"Coger tema pendiente\").item.json } }];"
+      },
+      "id": "b64a805f-ecf5-47cb-a334-77cd000039c5",
+      "name": "Validar y parsear",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "fe2b422d-882b-404f-be7f-42c11e4e2dab",
+      "name": "Articulo valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://images.example.com/search/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.post.imagen_query }}"
+            },
+            {
+              "name": "orientation",
+              "value": "landscape"
+            },
+            {
+              "name": "per_page",
+              "value": "1"
+            },
+            {
+              "name": "content_filter",
+              "value": "high"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2ca1930c-c502-4650-8d97-6c45c6cd5ba4",
+      "name": "Buscar imagen Unsplash",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1328,
+        -128
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.results[0].links.download_location }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "817bc4c0-5083-4f6f-9c83-bf41fca79852",
+      "name": "Registrar descarga Unsplash",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function limpiarSlug(s) {\n  return String(s || '')\n    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .slice(0, 80);\n}\nfunction elegirFoto() {\n  const fuentes = [\"Buscar imagen Unsplash\", \"Unsplash respaldo 1\", \"Unsplash respaldo 2\"];\n  for (const nombre of fuentes) {\n    try { const r = $(nombre).first().json.results; if (r && r.length) { return r[0]; } } catch (e) {}\n  }\n  return null;\n}\nconst post = $(\"Validar y parsear\").item.json.post; const topic = $(\"Validar y parsear\").item.json.topic; const img = elegirFoto(); const faqs = Array.isArray(post.faqs) ? post.faqs : []; const base = (img && img.user && img.user.links && img.user.links.html) ? img.user.links.html : \"https://images.example.com\"; const autorUrl = base + \"?utm_source=tu_marca&utm_medium=referral\"; const payload = { titulo: post.titulo, slug: limpiarSlug(post.slug || post.titulo), meta_title: post.meta_title, meta_description: post.meta_description, categoria: post.categoria, extracto: post.extracto, cuerpo_html: post.cuerpo_html, faqs: faqs, servicio_relacionado: post.servicio_relacionado, imagen_query: post.imagen_query, imagen_alt: post.imagen_alt || (img ? img.alt_description : \"\") || post.titulo, imagen_url: img ? img.urls.regular : \"\", imagen_url_small: img ? img.urls.small : \"\", imagen_autor: (img && img.user) ? img.user.name : \"\", imagen_autor_url: autorUrl }; return [{ json: { payload: payload, topic: topic } }];"
+      },
+      "id": "8d0e2dbb-a1b2-48aa-95b9-69897e18913a",
+      "name": "Construir payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://admin.example.com/api/blog/posts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "id": "c747bfad-90ac-4d13-a626-c315ec54d176",
+      "name": "Publicar en el blog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1984,
+        -128
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_DE_TU_TABLA_DE_TEMAS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "tema",
+              "keyValue": "={{ $(\"Construir payload\").first().json.topic.tema }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "estado": "publicado",
+            "url_publicada": "={{ \"https://www.example.com/blog/\" + $(\"Construir payload\").first().json.payload.slug + \"/\" }}",
+            "fecha": "={{ $now.toFormat(\"yyyy-MM-dd\") }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "87024147-c0ce-4fef-9355-ef7e3f2a1b5b",
+      "name": "Marcar tema publicado",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2208,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=Blog Auto: articulo publicado - {{ $(\"Validar y parsear\").first().json.post.titulo }} - {{ \"https://www.example.com/blog/\" + $(\"Construir payload\").first().json.payload.slug + \"/\" }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "619b283a-63ee-44bb-ab51-432e8c5fc0a0",
+      "name": "Avisar publicado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2432,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=Blog Auto: el articulo no paso los controles de calidad ({{ $json.reason }}). No se ha publicado. Tema: {{ $json.topic.tema }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d8f32caa-a6fb-4693-9c74-43de5a8dac72",
+      "name": "Avisar no valido",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1328,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=Blog Auto: no se pudo completar o confirmar la publicación. El artículo puede haber quedado guardado. Revisa el blog y el tema antes de reintentar. Ejecución {{ $execution.id }}.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "76a742c1-8156-44bc-b75e-af10afafbace",
+      "name": "Avisar error tecnico",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2656,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const nl = String.fromCharCode(10); const post = $(\"Validar y parsear\").first().json.post; const url = \"https://www.example.com/blog/\" + $(\"Construir payload\").first().json.payload.slug + \"/\"; const payload = $(\"Construir payload\").first().json.payload; const cat = String(post.categoria || \"\").toLowerCase(); let tags = \"#TuMarca #TuCiudad #pymes\"; if (cat.indexOf(\"web\") !== -1) { tags = \"#DiseñoWeb #PáginaWeb #pymes #TuCiudad\"; } else if (cat.indexOf(\"automat\") !== -1) { tags = \"#AutomatizaciónIA #InteligenciaArtificial #pymes #TuCiudad\"; } else if (cat.indexOf(\"brand\") !== -1) { tags = \"#Branding #DiseñoDeMarca #pymes #TuCiudad\"; } else if (cat.indexOf(\"seo\") !== -1) { tags = \"#SEO #MarketingDigital #pymes #TuCiudad\"; } else if (cat.indexOf(\"manten\") !== -1) { tags = \"#MantenimientoWeb #WPO #pymes #TuCiudad\"; } const linkedin = post.titulo + nl + nl + post.extracto + nl + nl + \"Lo contamos entero en el blog 👉 \" + url + nl + nl + tags; const facebook = post.titulo + nl + nl + post.extracto + nl + nl + \"👉 \" + url; const instagram = post.titulo + nl + nl + post.extracto + nl + nl + \"Artículo completo en el enlace de la bio 👉 www.example.com/blog\" + nl + nl + tags; const articuloHtml = String(post.cuerpo_html || \"\").replace(/href=\"\\//g, \"href=\\\"https://www.example.com/\"); return [{ json: { linkedin: linkedin, facebook: facebook, titulo: post.titulo, url: url, imagenUrl: payload.imagen_url, articuloHtml: articuloHtml, instagram: instagram } }];"
+      },
+      "id": "54001a43-d71a-4207-9273-0caf102ce83b",
+      "name": "Preparar textos de redes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imagenUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "f56dfaaf-c841-4783-bcca-a4be331f61e1",
+      "name": "Descargar imagen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2640,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "fromEmail": "Blog <blog@example.com>",
+        "toEmail": "tu-email@example.com",
+        "subject": "=Artículo del blog listo para redes: {{ $('Preparar textos de redes').first().json.titulo }}",
+        "html": "=<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:640px;color:#121921\"><h2 style=\"color:#635BFF;margin-bottom:4px\">Nuevo artículo en el blog</h2><p style=\"font-size:16px;margin-top:0\"><strong>{{ $('Preparar textos de redes').first().json.titulo }}</strong></p><p><a href=\"{{ $('Preparar textos de redes').first().json.url }}\" style=\"color:#635BFF\">{{ $('Preparar textos de redes').first().json.url }}</a></p><img src=\"cid:data\" alt=\"Imagen del artículo\" style=\"max-width:100%;border-radius:8px;margin:12px 0;display:block\"><p style=\"font-size:13px;color:#555\">Las publicaciones en Facebook e Instagram se intentan en paralelo de forma automática — confirma en Telegram si salieron bien, este email no lo garantiza. La imagen va también adjunta para que la subas a mano en LinkedIn junto con el texto de abajo.</p><hr style=\"border:none;border-top:1px solid #e0defb;margin:18px 0\"><h3 style=\"margin-bottom:6px\">Para LinkedIn — copia y pega en tu página</h3><pre style=\"white-space:pre-wrap;font-family:Arial,Helvetica,sans-serif;font-size:14px;background:#f6f5ff;padding:14px;border-radius:6px;border:1px solid #e0defb\">{{ $('Preparar textos de redes').first().json.linkedin }}</pre><hr style=\"border:none;border-top:1px solid #e0defb;margin:18px 0\"><h3 style=\"margin-bottom:6px\">Artículo completo (para revisar)</h3><div style=\"font-size:14px;line-height:1.6\">{{ $('Preparar textos de redes').first().json.articuloHtml }}</div></div>",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "data",
+          "fileAttachments": "data"
+        }
+      },
+      "id": "0dc90fde-1c79-4895-b315-68cbc483bf68",
+      "name": "Enviar email de redes",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://graph.example.com/v23.0/PAGE_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "access_token"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "10119d1a-f4b9-47fc-8077-327bdacdb125",
+      "name": "Token de página FB (blog)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2432,
+        304
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.example.com/v23.0/PAGE_ID/photos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $('Preparar textos de redes').first().json.imagenUrl }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $('Preparar textos de redes').first().json.facebook }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "86d9ac13-4d1a-45e3-8861-939148f1c6ca",
+      "name": "Publicar en Facebook (blog)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2640,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nfor (const item of items) {\n  if (item.binary && item.binary.data) {\n    item.binary.data.fileName = 'articulo-blog.jpg';\n    if (!item.binary.data.mimeType || item.binary.data.mimeType === 'application/octet-stream') {\n      item.binary.data.mimeType = 'image/jpeg';\n    }\n  }\n}\nreturn items;"
+      },
+      "id": "7ecc0c7b-c0f8-4f01-8bc1-4d36f1c8b4de",
+      "name": "Renombrar imagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reinicia el contador de intentos al empezar cada corrida\nconst sd = $getWorkflowStaticData('global');\nsd.intentosBlog = 1;\nreturn $input.all();"
+      },
+      "id": "d65fc0b6-1bfd-4050-ae3a-a029891d77f3",
+      "name": "Reset intentos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide si reintentar la generacion (max 3 intentos totales)\nconst sd = $getWorkflowStaticData('global');\nconst MAX = 3;\nconst actual = sd.intentosBlog || 1;\nlet reintentar = false;\nif (actual < MAX) { sd.intentosBlog = actual + 1; reintentar = true; }\nconst items = $input.all();\nfor (const it of items) { it.json.reintentar = reintentar; it.json.intentoNum = actual; }\nreturn items;"
+      },
+      "id": "a01c5aae-b6f7-413d-9370-d5752de5dbd8",
+      "name": "Preparar reintento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.reintentar }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4d452828-e8b8-4205-8849-6ca3c6cce16a",
+      "name": "¿Reintentar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1776,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fa2c7513-5063-42cc-a5ec-8c3685bc32ef",
+              "leftValue": "={{ $json.results.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        176
+      ],
+      "id": "390238d9-bbcd-4994-8e1a-0c5fa09e1831",
+      "name": "¿Hay foto?"
+    },
+    {
+      "parameters": {
+        "jsCode": "function elegirFoto() {\n  const fuentes = [\"Buscar imagen Unsplash\", \"Unsplash respaldo 1\", \"Unsplash respaldo 2\"];\n  for (const nombre of fuentes) {\n    try { const r = $(nombre).first().json.results; if (r && r.length) { return r[0]; } } catch (e) {}\n  }\n  return null;\n}\nconst img = elegirFoto();\nconst u = (img && img.urls && (img.urls.raw || img.urls.full)) || '';\nif (!u) { throw new Error('Unsplash no devolvió foto para Instagram'); }\nconst sep = u.includes('?') ? '&' : '?';\nreturn [{ json: { imageUrl: u + sep + 'w=1080&h=1080&fit=crop&q=85&auto=format' } }];"
+      },
+      "id": "4ca88ef5-2161-4f66-b108-69f73416460b",
+      "name": "Preparar foto IG (blog)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://admin.example.com/api/marca-imagen",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { url: $json.imageUrl, estilo: \"duotono\" } }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "7c4ad984-bebc-443e-ac1c-488d5303c71e",
+      "name": "Aplicar marca IG (blog)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2864,
+        528
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.example.com/v23.0/IG_USER_ID/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $(\"Preparar textos de redes\").first().json.instagram }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "1fbae7e3-6216-4d1b-8d38-c8609469e77e",
+      "name": "Crear contenedor IG (blog)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3088,
+        528
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 8
+      },
+      "id": "6f71b86e-cb33-4fd9-b68c-8c92a673dbd4",
+      "name": "Esperar 8 s (blog)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3312,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.example.com/v23.0/PAGE_ID/media_publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $(\"Crear contenedor IG (blog)\").first().json.id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "46934635-1200-47d0-b2c0-e8a010176867",
+      "name": "Publicar en Instagram (blog)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3536,
+        528
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = String($(\"Validar y parsear\").first().json.post.imagen_query || \"\");\nconst w = q.split(/\\s+/).filter(Boolean).slice(0, 2).join(\" \");\nreturn [{ json: { queryRespaldo: w || \"modern office\" } }];"
+      },
+      "id": "bdf2f39a-322b-4e0f-87ab-bd3e747c6f2a",
+      "name": "Consulta respaldo 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://images.example.com/search/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.queryRespaldo }}"
+            },
+            {
+              "name": "orientation",
+              "value": "landscape"
+            },
+            {
+              "name": "per_page",
+              "value": "1"
+            },
+            {
+              "name": "content_filter",
+              "value": "high"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "39c39faa-84a8-4c1c-a385-450ca84cdddc",
+      "name": "Unsplash respaldo 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1620,
+        600
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "505feb8f-7672-4407-96aa-81216242b2f9",
+              "leftValue": "={{ $json.results.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "8ab3d6bc-d8cf-47e4-943c-af0f0eeaf698",
+      "name": "¿Hay foto R1?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1840,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cat = String($(\"Validar y parsear\").first().json.post.categoria || \"\").toLowerCase();\nlet q = \"modern office\";\nif (cat.indexOf(\"web\") !== -1) { q = \"web design office\"; }\nelse if (cat.indexOf(\"automat\") !== -1) { q = \"technology office\"; }\nelse if (cat.indexOf(\"brand\") !== -1) { q = \"graphic design studio\"; }\nelse if (cat.indexOf(\"seo\") !== -1) { q = \"marketing analytics\"; }\nelse if (cat.indexOf(\"manten\") !== -1) { q = \"laptop desk\"; }\nreturn [{ json: { queryRespaldo: q } }];"
+      },
+      "id": "567e9f2b-d401-4bad-839f-a408ab96c8ee",
+      "name": "Consulta respaldo 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://images.example.com/search/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.queryRespaldo }}"
+            },
+            {
+              "name": "orientation",
+              "value": "landscape"
+            },
+            {
+              "name": "per_page",
+              "value": "1"
+            },
+            {
+              "name": "content_filter",
+              "value": "high"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e94b5463-fd4f-4a48-aa97-66e61af98d7c",
+      "name": "Unsplash respaldo 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1620,
+        780
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7dc48fb2-83b8-49d9-960b-8c52e2a0a0a5",
+              "leftValue": "={{ $json.results.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4b8fd808-f125-4105-a11c-c255d742bc53",
+      "name": "¿Hay foto R2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1840,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "method": "HEAD",
+        "url": "={{ \"https://www.example.com/blog/\" + $(\"Construir payload\").first().json.payload.slug + \"/\" }}",
+        "options": {}
+      },
+      "id": "ac584926-741c-4720-a062-81bf06d0bae8",
+      "name": "Comprobar página pública",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2208,
+        160
+      ],
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_DE_TU_TABLA_DE_TEMAS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "tema",
+              "keyValue": "={{ $(\"Construir payload\").first().json.topic.tema }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "estado": "revisar",
+            "url_publicada": "={{ \"https://www.example.com/blog/\" + $(\"Construir payload\").first().json.payload.slug + \"/\" }}",
+            "fecha": "={{ $now.toFormat(\"yyyy-MM-dd\") }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "e8dd870d-073a-482a-9ab3-83b4094d991b",
+      "name": "Marcar tema por revisar",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2432,
+        160
+      ]
+    },
+    {
+      "id": "af9b9fa1-5999-4a0a-9a67-f6726fe869ba",
+      "name": "Léeme",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        -300
+      ],
+      "parameters": {
+        "width": 520,
+        "height": 560,
+        "content": "## Blog automático con IA (plantilla)\nCola de temas → artículo con IA → validación y reintentos → imagen con dos respaldos → blog → Facebook e Instagram → aviso por Telegram.\n\n**Para ponerla en marcha:**\n1. Crea una *Data Table* con las columnas `tema`, `categoria`, `keyword_principal`, `keywords_secundarias`, `servicio_relacionado`, `estado`, `url_publicada` y `fecha`, y selecciónala en los tres nodos de tabla.\n2. Credenciales y nodos que las usan:\n   - *Header Auth* del modelo: «Generar articulo…».\n   - *Header Auth* de Unsplash (`Authorization: Client-ID …`): búsqueda, respaldos y registro de descarga.\n   - *Header Auth* de la API del blog: «Publicar en el blog» y «Aplicar marca IG».\n   - *Query Auth* de Meta: token de página y nodos de Instagram.\n   - Telegram y SMTP.\n3. Sustituye las URLs de `example.com`, `PAGE_ID`, `IG_USER_ID` y `TU_CHAT_ID`.\n4. Personaliza el prompt en «Construir peticion Groq»: marca, servicios, datos fijos y rutas internas.\n5. Si no tienes un endpoint para dar marca a la imagen, conecta «Preparar foto IG» directamente con «Crear contenedor IG».\n\nLos reintentos usan *static data* del flujo: guárdalo y actívalo para que persista."
+      }
+    }
+  ],
+  "connections": {
+    "Coger tema pendiente": {
+      "main": [
+        [
+          {
+            "node": "Construir peticion Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir peticion Groq": {
+      "main": [
+        [
+          {
+            "node": "Generar articulo con Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar articulo con Groq": {
+      "main": [
+        [
+          {
+            "node": "Validar y parsear",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar y parsear": {
+      "main": [
+        [
+          {
+            "node": "Articulo valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Articulo valido?": {
+      "main": [
+        [
+          {
+            "node": "Buscar imagen Unsplash",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar reintento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar imagen Unsplash": {
+      "main": [
+        [
+          {
+            "node": "¿Hay foto?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar descarga Unsplash": {
+      "main": [
+        [
+          {
+            "node": "Construir payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir payload": {
+      "main": [
+        [
+          {
+            "node": "Publicar en el blog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar en el blog": {
+      "main": [
+        [
+          {
+            "node": "Marcar tema publicado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comprobar página pública",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar tema publicado": {
+      "main": [
+        [
+          {
+            "node": "Avisar publicado",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar textos de redes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar textos de redes": {
+      "main": [
+        [
+          {
+            "node": "Descargar imagen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Token de página FB (blog)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar foto IG (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar imagen": {
+      "main": [
+        [
+          {
+            "node": "Renombrar imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token de página FB (blog)": {
+      "main": [
+        [
+          {
+            "node": "Publicar en Facebook (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar en Facebook (blog)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Renombrar imagen": {
+      "main": [
+        [
+          {
+            "node": "Enviar email de redes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset intentos": {
+      "main": [
+        [
+          {
+            "node": "Coger tema pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar reintento": {
+      "main": [
+        [
+          {
+            "node": "¿Reintentar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Reintentar?": {
+      "main": [
+        [
+          {
+            "node": "Coger tema pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar no valido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay foto?": {
+      "main": [
+        [
+          {
+            "node": "Registrar descarga Unsplash",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consulta respaldo 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar foto IG (blog)": {
+      "main": [
+        [
+          {
+            "node": "Aplicar marca IG (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar marca IG (blog)": {
+      "main": [
+        [
+          {
+            "node": "Crear contenedor IG (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear contenedor IG (blog)": {
+      "main": [
+        [
+          {
+            "node": "Esperar 8 s (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar 8 s (blog)": {
+      "main": [
+        [
+          {
+            "node": "Publicar en Instagram (blog)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar en Instagram (blog)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consulta respaldo 1": {
+      "main": [
+        [
+          {
+            "node": "Unsplash respaldo 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unsplash respaldo 1": {
+      "main": [
+        [
+          {
+            "node": "¿Hay foto R1?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay foto R1?": {
+      "main": [
+        [
+          {
+            "node": "Registrar descarga Unsplash",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consulta respaldo 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consulta respaldo 2": {
+      "main": [
+        [
+          {
+            "node": "Unsplash respaldo 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unsplash respaldo 2": {
+      "main": [
+        [
+          {
+            "node": "¿Hay foto R2?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay foto R2?": {
+      "main": [
+        [
+          {
+            "node": "Registrar descarga Unsplash",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Programado L-X-V 09:00": {
+      "main": [
+        [
+          {
+            "node": "Reset intentos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comprobar página pública": {
+      "main": [
+        [
+          {
+            "node": "Marcar tema publicado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar tema por revisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar tema por revisar": {
+      "main": [
+        [
+          {
+            "node": "Avisar error tecnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
