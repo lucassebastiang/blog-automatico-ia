@@ -1,7 +1,14 @@
+<p align="center">
+  <img src="assets/banner.png" alt="Blog automático con IA" width="100%">
+</p>
+
 # Blog automático con IA · n8n, LLM, Unsplash, Meta y Telegram
+
+![en producción](https://img.shields.io/badge/estado-en%20producci%C3%B3n-2EA043?style=flat-square) ![proyecto propio](https://img.shields.io/badge/proyecto%20propio-7C6CF0?style=flat-square) ![n8n](https://img.shields.io/badge/n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white) ![Unsplash](https://img.shields.io/badge/Unsplash-000000?style=flat-square&logo=unsplash&logoColor=white) ![Meta](https://img.shields.io/badge/Meta-0467DF?style=flat-square&logo=meta&logoColor=white) ![Telegram](https://img.shields.io/badge/Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white)
 
 **Resultado en vivo:** https://circoestudio.com/blog
 
+> [!NOTE]
 > **Proyecto propio de circo estudio.** Sistema que mantiene el blog y las redes de la marca con contenido nuevo tres veces por semana, sin intervención manual, y que avisa por Telegram de cada publicación o problema. Incluye una [plantilla importable de n8n](snippets/blog-automatico.n8n.json) del flujo principal y los fragmentos más interesantes.
 
 ## El problema
